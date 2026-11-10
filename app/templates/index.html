@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ app_name }} - SOC Analyst Console</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <span class="brand-icon">🛡️</span>
+      <div class="brand-text">
+        <h1>DB-Sentinel AI</h1>
+        <p class="subtitle">Multi-Dimensional Behavioral Feature Fusion & Explainable Anomaly Detection</p>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <div class="dataset-selector-box">
+        <label for="datasetSelect">Active Source:</label>
+        <select id="datasetSelect" onchange="onDatasetChange()">
+          <option value="original">Original Repository (access_logs.db)</option>
+          <option value="synthetic_sql">Synthetic SQL Audit Log (Extension)</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="runAnalysis()">⚡ Run Anomaly Detection</button>
+      <a href="/docs" target="_blank" class="btn btn-outline">📖 OpenAPI Specs</a>
+    </div>
+  </header>
+
+  <!-- Dimension Indicator Banner -->
+  <div class="dimension-banner" id="dimensionBanner">
+    <div class="dim-tag active" id="dimUser">👤 User Behavior</div>
+    <div class="dim-tag active" id="dimTemporal">🕒 Temporal / Off-Hours</div>
+    <div class="dim-tag active" id="dimFreq">📈 Frequency Bursts</div>
+    <div class="dim-tag active" id="dimBaseline">🎯 Baseline Deviations</div>
+    <div class="dim-tag" id="dimSQL">📜 SQL AST Semantics</div>
+    <div class="dim-tag" id="dimVolume">💾 Data Volume (Rows)</div>
+    <div class="source-badge" id="sourceBadge">Source: original (access_logs.db)</div>
+  </div>
+
+  <main class="dashboard-container">
+    <!-- Stat Cards Overview -->
+    <section class="metrics-grid">
+      <div class="card stat-card">
+        <div class="stat-icon icon-blue">📊</div>
+        <div class="stat-data">
+          <span class="stat-value" id="statAnalyzed">--</span>
+          <span class="stat-label">Events Analyzed</span>
+        </div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon icon-purple">👥</div>
+        <div class="stat-data">
+          <span class="stat-value" id="statUsers">--</span>
+          <span class="stat-label">Monitored Profiles</span>
+        </div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon icon-amber">⚠️</div>
+        <div class="stat-data">
+          <span class="stat-value" id="statAlerts">--</span>
+          <span class="stat-label">Total Flagged Anomalies</span>
+        </div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon icon-red">🚨</div>
+        <div class="stat-data">
+          <span class="stat-value" id="statCritical">--</span>
+          <span class="stat-label">Critical / High Severity</span>
+        </div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-icon icon-green">🎯</div>
+        <div class="stat-data">
+          <span class="stat-value" id="statRocAuc">--</span>
+          <span class="stat-label">Evaluation ROC-AUC</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Visualizations Grid -->
+    <section class="charts-grid">
+      <div class="card chart-card">
+        <div class="card-header">
+          <h3>Anomaly Score Distribution (0–100 Scale)</h3>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="scoreDistChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="card-header">
+          <h3>Alert Severity Breakdown</h3>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="severityChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="card-header">
+          <h3>Off-Hours vs. Baseline Activity Frequency</h3>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="offHoursChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="card-header">
+          <h3>Model Evaluation Metrics</h3>
+        </div>
+        <div class="eval-metrics-box" id="evalMetricsContent">
+          <p class="text-muted">Loading evaluation metrics...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Alert Investigation Console -->
+    <section class="card table-card">
+      <div class="card-header table-header">
+        <div class="table-title">
+          <h2>Security Analyst Alert Triage Console</h2>
+          <p class="subtitle">Search, filter, inspect feature deviations, and update investigation statuses</p>
+        </div>
+        <div class="table-toolbar">
+          <input type="text" id="filterUser" placeholder="Filter by User / ID..." oninput="fetchAlerts()">
+          <input type="text" id="filterResource" placeholder="Filter by Resource / Table..." oninput="fetchAlerts()">
+          <select id="filterSeverity" onchange="fetchAlerts()">
+            <option value="all">All Severities</option>
+            <option value="CRITICAL">Critical</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+          <select id="filterStatus" onchange="fetchAlerts()">
+            <option value="all">All Statuses</option>
+            <option value="open">Open</option>
+            <option value="investigating">Investigating</option>
+            <option value="resolved">Resolved</option>
+            <option value="false_positive">False Positive</option>
+          </select>
+          <button class="btn btn-outline" onclick="exportCSV()">📥 Export CSV</button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="alert-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>User / Role</th>
+              <th>Resource / Table</th>
+              <th>Event / Query</th>
+              <th>Risk Score</th>
+              <th>Severity</th>
+              <th>Explanation Narrative</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="alertTableBody">
+            <tr>
+              <td colspan="9" class="text-center py-4">No analysis executed yet. Click <strong>Run Anomaly Detection</strong> above to start.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Alert Detail Modal -->
+  <div class="modal-backdrop" id="alertModal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-title-box">
+          <h2 id="modalEventId">Alert Details</h2>
+          <span class="badge" id="modalSeverity">SEVERITY</span>
+        </div>
+        <button class="close-btn" onclick="closeModal()">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Overview summary -->
+        <div class="detail-section">
+          <h3>📌 Event Overview</h3>
+          <div class="detail-grid">
+            <div><strong>Timestamp:</strong> <span id="modalTimestamp">--</span></div>
+            <div><strong>User Identifier:</strong> <span id="modalUser">--</span></div>
+            <div><strong>Role / Dept:</strong> <span id="modalRole">--</span></div>
+            <div><strong>Target Resource:</strong> <span id="modalResource">--</span></div>
+            <div><strong>Query / Action:</strong> <span id="modalQuery">--</span></div>
+            <div><strong>Computed Risk Score:</strong> <span id="modalScore" class="score-highlight">--</span></div>
+            <div><strong>Ground Truth:</strong> <span id="modalGroundTruth">--</span></div>
+            <div><strong>Dataset Source:</strong> <span id="modalSource">--</span></div>
+          </div>
+        </div>
+
+        <!-- Human-Readable Narrative Explanation -->
+        <div class="detail-section highlight-box">
+          <h3>🔍 Explainable AI Narrative</h3>
+          <p id="modalExplanation" class="narrative-text">--</p>
+          <p class="disclaimer-text">💡 <em>Explanation generated from transparent multi-dimensional deviation thresholds and historical baseline divergence.</em></p>
+        </div>
+
+        <!-- Contributing Behavioral Factors -->
+        <div class="detail-section">
+          <h3>⚡ Key Contributing Behavioral Indicators</h3>
+          <ul id="modalFactorsList" class="factors-list"></ul>
+        </div>
+
+        <!-- Baseline Comparison Metrics -->
+        <div class="detail-section">
+          <h3>📊 Historical Baseline Comparison</h3>
+          <div id="modalBaselineContent" class="baseline-box"></div>
+        </div>
+
+        <!-- Recommended Security Actions -->
+        <div class="detail-section action-box">
+          <h3>🛡️ Recommended Security Actions</h3>
+          <p id="modalActionText">--</p>
+        </div>
+
+        <!-- Status & Analyst Notes -->
+        <div class="detail-section">
+          <h3>📝 Analyst Triage & Investigation Notes</h3>
+          <div class="triage-controls">
+            <label for="modalStatusSelect">Update Triage Status:</label>
+            <select id="modalStatusSelect">
+              <option value="open">Open</option>
+              <option value="investigating">Investigating</option>
+              <option value="resolved">Resolved</option>
+              <option value="false_positive">False Positive</option>
+            </select>
+            <button class="btn btn-secondary" onclick="saveStatusChange()">Update Status</button>
+          </div>
+
+          <div class="notes-history" id="modalNotesList"></div>
+
+          <div class="add-note-box">
+            <textarea id="modalNewNote" placeholder="Enter investigation note, evidence, or disposition..."></textarea>
+            <button class="btn btn-primary" onclick="submitNote()">Add Investigation Note</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <p>Academic Project Demonstration: Explainable Multi-Dimensional Database Anomaly Detection Using Behavioral Feature Fusion | Powered by FastAPI, SQLite & Scikit-Learn</p>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
